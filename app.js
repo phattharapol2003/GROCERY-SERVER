@@ -1,80 +1,58 @@
 const express = require('express');
-const cors = require('cors');
-const mysql = require('mysql');
+const bodyParser = require('body-parser');
+const mysql = require('mysql2');
 const bcrypt = require('bcrypt');
-const saltRounds = 10;
-var jwt = require('jsonwebtoken');
-const secret = 'panida'
-// const bodyParser = require('bode-parser');
-// const jsonParser = bodyParser.json();
-
+const jwt = require('jsonwebtoken');
 const app = express();
-app.use(cors());
-app.use(express.json());
+app.use(bodyParser.json());
 
+// Set up the MySQL connection
 const db = mysql.createConnection({
   host: 'localhost',
   user: 'root',
-  password: '123456',
-  database: 'panida',
+  password: 'password',
+  database: 'panida'
 });
 
-db.connect((err) => {
-  if (err) throw err;
-  console.log('Connected to the database');
-});
+// Create the login endpoint
+app.post('/login', (req, res) => {
+  const { username, password } = req.body;
 
-app.listen(3000, function() {
-  console.log('Server is running on port 3000');
-});
-
-app.post('/register', function (req,res, next) {
-  bcrypt.hash(req.body.password, saltRounds, function(err, hash) {
-  db.query(
-    'INSERT INTO users (name, email, password) VALUES (?, ?, ?)',
-    [req.body.name, req.body.email, hash ],
-    function(err, result, fields) {
-        if(err) {
-          res.json({status: 'error', message: err})
-          return 
-        }
-      res.json({status : 'ok'})
-    }
-  );
-});
-});
-
-app.post('/login', function (req,res,next) {
-  db.query(
-    'SELECT * FROM users WHERE email=?',
-    [req.body.email],
-    function(err, users, fields) {
-        if(err) {
-          res.json({statis: 'error', meesage: err})
-          return 
-        }
-        if (users.length == 0) { 
-          res.json({status: 'error', message: 'no user found'})
-          return
-      }
-      bcrypt.compare(req.body.password, users[0].password, function(err, isLogin) {
-        if (isLogin) {
-          var token = jwt.sign({ email: users[0].email }, secret, { expiresIn: '1h' });
-          res.json({status: 'ok', message: 'login success', token})
-        } else {
-          res.json({status: 'error', message: 'login failed'})
-        }
-      });
-    }
-  );
-});
-
-app.post('/authen', function (req,res,next) {
-  try {
-    const token = req.headers.authorization.split(' ')[1]
-    var decoded = jwt.verify(token, secret);
-    res.json({status: 'ok', decoded})
-  } catch(err) {
-    res.json({status: 'error', message: err.message})
+  // Check if the username and password are provided
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required' });
   }
-})
+
+  // Query the database for the user
+  db.query('SELECT * FROM users WHERE username = ?', [username], (err, results) => {
+    if (err) {
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+
+    // Check if the user exists
+    if (results.length === 0) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+
+    // Compare the provided password with the stored hash
+    const user = results[0];
+    bcrypt.compare(password, user.password, (err, isMatch) => {
+      if (err) {
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+
+      // Generate and return an access token if the passwords match
+      if (isMatch) {
+        const accessToken = jwt.sign({ username: user.username }, 'secret_key', { expiresIn: '1h' });
+        res.json({ access_token: accessToken });
+      } else {
+        res.status(401).json({ error: 'Invalid username or password' });
+      }
+    });
+  });
+});
+
+// Start the server
+app.listen(3000, () => {
+  console.log('Server started on port 3000');
+});
